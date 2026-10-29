@@ -50,7 +50,7 @@ Reglas duras del repo:
 
 ## 4. Coolify: la aplicación
 
-1. **+ New → Application → (GitHub App o Public Repo) → tu fork**, rama `main`.
+1. **+ New → Application → (GitHub App o Public Repo) → `juansebas0712/openreply`**, rama **`coolify`** (`main` queda limpia para sincronizar con upstream; después de cada *Sync fork* haz `git rebase main` en `coolify`).
 2. Build Pack: **Docker Compose**, ruta del compose: `/docker-compose.coolify.yml`.
 3. En la configuración del recurso, activa **Connect To Predefined Network** (para que alcance a Postgres/Redis por hostname interno).
 4. Dominio: asigna `https://reply.tutopress.co` **solo al servicio `web`** (puerto 3000). worker y cron sin dominio.
