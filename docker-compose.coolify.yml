@@ -1,0 +1,78 @@
+# OpenReply en Coolify — web + worker + cron desde la misma imagen.
+#
+# Postgres y Redis NO van aquí: créalos como recursos "Database" de Coolify
+# (backups programados nativos) y activa "Connect To Predefined Network" en
+# este recurso para que web/worker/cron lleguen a ellos por su hostname interno.
+#
+# Las tres services comparten imagen: BuildKit reutiliza la caché de capas,
+# así que solo la primera build hace el trabajo real.
+#
+# Variables: defínelas en la pestaña Environment Variables del recurso.
+
+x-app-env: &app-env
+  NODE_ENV: production
+  NEXTAUTH_URL: ${NEXTAUTH_URL}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+  CRON_SECRET: ${CRON_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: ${REDIS_URL}
+  EMAIL_FROM: ${EMAIL_FROM}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  EMAIL_SERVER: ${EMAIL_SERVER:-}
+  ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+  WEBHOOK_VERIFY_TOKEN: ${WEBHOOK_VERIFY_TOKEN:-}
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openreply-app:latest
+    restart: unless-stopped
+    # Las migraciones van al arrancar: durante la build la base de datos no es
+    # alcanzable (ver docs/deploy-dokploy.md, Gotcha #3).
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+    environment:
+      <<: *app-env
+      # Coolify asigna el dominio a este servicio y enruta a su puerto 3000.
+      SERVICE_FQDN_WEB_3000: ${SERVICE_FQDN_WEB_3000:-}
+    # No usar /api/health aquí: devuelve 503 si el worker está caído, y eso
+    # reiniciaría la web por un fallo del worker.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/privacy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openreply-app:latest
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    environment:
+      <<: *app-env
+    depends_on:
+      web:
+        condition: service_healthy
+
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openreply-app:latest
+    restart: unless-stopped
+    command: ["sh", "scripts/cron.sh"]
+    environment:
+      CRON_BASE_URL: http://web:3000
+      CRON_SECRET: ${CRON_SECRET}
+    depends_on:
+      web:
+        condition: service_healthy
